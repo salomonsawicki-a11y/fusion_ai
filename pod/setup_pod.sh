@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Rebuild /data_local from scratch on a fresh RunPod pod (container disk is wiped
+# on every pod stop). Idempotent: safe to rerun after a partial failure.
+#
+# Usage (from the fusion_ai checkout):  bash pod/setup_pod.sh
+# Env knobs: WORK (/data_local/work), DATA (/data_local/mast_data),
+#            TRAIN_N (300), EVAL_N (100)
+#
+# NEVER read or write /workspace (network volume) — it returns phantom
+# FileNotFoundError on files that exist. Everything lives on local disk.
+
+set -euo pipefail
+
+WORK="${WORK:-/data_local/work}"
+DATA="${DATA:-/data_local/mast_data}"
+KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # fusion_ai checkout root
+
+echo "== [1/7] Directories =="
+mkdir -p "$WORK" "$DATA"
+
+echo "== [2/7] Clone tokamind + tokamark (fresh from GitHub, never from /workspace) =="
+for repo in tokamind tokamark; do
+  if [ ! -d "$WORK/$repo/.git" ]; then
+    git clone "https://github.com/UKAEA-IBM-STFC-Fusion-FMs/$repo.git" "$WORK/$repo"
+  else
+    echo "$repo already cloned"
+  fi
+done
+
+echo "== [3/7] Install both packages editable against $WORK (the 14305 fix) =="
+pip install -e "$WORK/tokamark" -e "$WORK/tokamind"
+pip install s3fs huggingface_hub
+# Prove the import resolves into $WORK — the exact failure mode behind 14305.zarr:
+python -c "
+import tokamark, sys
+p = tokamark.__file__
+assert p.startswith('$WORK'), f'tokamark imports from {p}, not $WORK — editable install failed'
+print('tokamark imports from:', p)
+"
+
+echo "== [4/7] Replace the package temporal CSV with the filtered 500-shot version =="
+CSV=$(python -c "import tokamark.tools.path as p; print(p.TEMPORAL_SPLIT_TOKAMARK_DATA_SPLITS_FILE)")
+if [ ! -f "$CSV.orig" ]; then cp "$CSV" "$CSV.orig"; fi
+cp "$KIT/data/TokaMark_temporal_data_splits_filtered500.csv" "$CSV"
+echo "filtered CSV installed at: $CSV ($(($(wc -l < "$CSV") - 1)) rows)"
+
+echo "== [5/7] Pretrained weights from HF =="
+WEIGHTS="$WORK/tokamind/runs/tokamind-base-v2"
+if [ ! -d "$WEIGHTS" ] || [ -z "$(ls -A "$WEIGHTS" 2>/dev/null)" ]; then
+  python -c "
+from huggingface_hub import snapshot_download
+snapshot_download('UKAEA-IBM-STFC/tokamind-base-v2', local_dir='$WEIGHTS')
+print('weights downloaded to $WEIGHTS')
+"
+else
+  echo "weights already present"
+fi
+
+echo "== [6/7] Shot data (500 zarr stores, ~6.8 GB, anonymous S3) =="
+python "$KIT/pod/download_shots.py"
+
+echo "== [7/7] Purge caches (30 GB container disk fills fast) and verify =="
+rm -rf /root/.cache/pip /root/.cache/huggingface
+python "$KIT/pod/patch_forward.py"
+python "$KIT/pod/verify_setup.py"
+
+echo
+echo "Setup complete. Run the experiment with:"
+echo "  bash $KIT/pod/run_move2.sh 2>&1 | tee $WORK/move2.log"

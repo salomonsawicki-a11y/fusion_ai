@@ -110,9 +110,17 @@ try:
     import torch
 
     if torch.cuda.is_available():
-        print(f"  OK   CUDA available: {torch.cuda.get_device_name(0)}")
+        print(f"  OK   torch {torch.__version__}, CUDA available: {torch.cuda.get_device_name(0)}")
+    elif os.environ.get("ALLOW_CPU") == "1":
+        print("  WARN CUDA not available, but ALLOW_CPU=1 — proceeding CPU-only (very slow).")
     else:
-        print("  WARN CUDA not available — run will be very slow (not fatal).")
+        check(
+            False,
+            "",
+            f"torch {torch.__version__} cannot use the GPU (often a torch build newer than the "
+            f"host driver's CUDA). setup_pod.sh step 3b fixes this; or set ALLOW_CPU=1 to "
+            f"deliberately run on CPU.",
+        )
 except Exception as e:  # noqa: BLE001
     check(False, "", f"torch import failed: {e}")
 

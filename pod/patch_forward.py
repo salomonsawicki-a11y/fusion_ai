@@ -7,15 +7,21 @@ after the module docstring makes all annotations lazy and fixes the import.
 
 Patches the file of the *installed* mmt package (editable installs point back into
 the checkout), then hard-verifies the import.
+
+The file is located via find_spec WITHOUT importing mmt.eval — importing it is
+exactly what crashes before the patch is applied.
 """
 
 import ast
 import importlib
+import importlib.util
+import os
 import sys
 
-import mmt.eval
-
-target = mmt.eval.__file__.replace("__init__.py", "forward.py")
+spec = importlib.util.find_spec("mmt")
+if spec is None or spec.origin is None:
+    sys.exit("cannot locate installed mmt package")
+target = os.path.join(os.path.dirname(spec.origin), "eval", "forward.py")
 src = open(target).read()
 
 if "from __future__ import annotations" in src:

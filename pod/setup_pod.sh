@@ -38,6 +38,27 @@ assert p.startswith('$WORK'), f'tokamark imports from {p}, not $WORK — editabl
 print('tokamark imports from:', p)
 "
 
+echo "== [3b] Torch <-> GPU driver compatibility =="
+# pip may have upgraded torch to a build compiled for a newer CUDA than the host
+# driver supports, leaving torch.cuda.is_available() False -> silent CPU-only runs.
+# Reinstall torch/vision from the wheel index matching the driver's CUDA version.
+if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    CUDA_VER=$(nvidia-smi | grep -oP 'CUDA Version: \K[0-9]+\.[0-9]+' | head -1)
+    TAG="cu$(echo "$CUDA_VER" | tr -d '.')"
+    echo "torch cannot use the GPU; driver supports CUDA $CUDA_VER -> reinstalling from the $TAG wheel index"
+    pip install --force-reinstall "torch>=2.10" torchvision \
+      --index-url "https://download.pytorch.org/whl/$TAG" \
+      --extra-index-url https://pypi.org/simple
+    rm -rf /root/.cache/pip
+    python -c "import torch; print('torch', torch.__version__, '| CUDA available:', torch.cuda.is_available())"
+  else
+    echo "WARNING: nvidia-smi not found — no GPU on this machine?"
+  fi
+else
+  python -c "import torch; print('torch', torch.__version__, '| CUDA available: True')"
+fi
+
 echo "== [4/7] Replace the package temporal CSV with the filtered 500-shot version =="
 CSV=$(python -c "import tokamark.tools.path as p; print(p.TEMPORAL_SPLIT_TOKAMARK_DATA_SPLITS_FILE)")
 if [ ! -f "$CSV.orig" ]; then cp "$CSV" "$CSV.orig"; fi

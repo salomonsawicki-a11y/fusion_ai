@@ -14,6 +14,13 @@ that blocked the last attempts and how this kit makes it structurally impossible
 
 ## Quickstart on a fresh pod (RunPod, 1× L4, ≥30 GB container disk)
 
+**When deploying, filter hosts by CUDA version >= 13.0** (Filter button next to the
+GPU search box). tokamind requires torch>=2.10, whose default builds need CUDA 13;
+on an older-driver host (e.g. CUDA 12.8) torch silently loses the GPU. setup_pod.sh
+step 3b can usually repair that by installing an older-CUDA torch build, but picking
+a CUDA >= 13.0 host avoids the issue and a multi-GB reinstall entirely. No network
+volume needed; persistent storage 0 GB.
+
 ```bash
 # on the pod, inside tmux:
 git clone https://github.com/salomonsawicki-a11y/fusion_ai.git /data_local/fusion_ai   # private repo: clone via token, or scp the checkout

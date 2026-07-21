@@ -45,13 +45,29 @@ echo "== [3b] Torch <-> GPU driver compatibility =="
 if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
   if command -v nvidia-smi >/dev/null 2>&1; then
     CUDA_VER=$(nvidia-smi | grep -oP 'CUDA Version: \K[0-9]+\.[0-9]+' | head -1)
-    TAG="cu$(echo "$CUDA_VER" | tr -d '.')"
-    echo "torch cannot use the GPU; driver supports CUDA $CUDA_VER -> reinstalling from the $TAG wheel index"
-    pip install --force-reinstall "torch>=2.10" torchvision \
-      --index-url "https://download.pytorch.org/whl/$TAG" \
-      --extra-index-url https://pypi.org/simple
+    DRIVER_NUM=$(echo "$CUDA_VER" | tr -d '.')
+    echo "torch cannot use the GPU; driver supports CUDA $CUDA_VER"
+    # Try PyTorch wheel indexes for CUDA versions the driver can run, newest first.
+    # IMPORTANT: no PyPI fallback index here — pip would prefer PyPI's newest
+    # (driver-incompatible) build, which is exactly the failure being fixed.
+    FIXED=0
+    for TAG in cu130 cu129 cu128 cu126 cu124 cu121 cu118; do
+      NUM=${TAG#cu}
+      [ "$NUM" -le "$DRIVER_NUM" ] || continue
+      echo "-> trying torch>=2.10 from https://download.pytorch.org/whl/$TAG"
+      if pip install --no-cache-dir --force-reinstall "torch>=2.10" torchvision \
+           --index-url "https://download.pytorch.org/whl/$TAG"; then
+        FIXED=1
+        break
+      fi
+    done
     rm -rf /root/.cache/pip
     python -c "import torch; print('torch', torch.__version__, '| CUDA available:', torch.cuda.is_available())"
+    if [ "$FIXED" != "1" ] || ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+      echo "ERROR: could not install a torch>=2.10 build compatible with driver CUDA $CUDA_VER."
+      echo "Easiest fix: deploy a pod on a host with CUDA >= 13.0 (Filter -> CUDA version on the deploy page)."
+      exit 1
+    fi
   else
     echo "WARNING: nvidia-smi not found — no GPU on this machine?"
   fi

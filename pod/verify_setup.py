@@ -78,6 +78,39 @@ check(
     "canary FAILED: 14305 is in the selection — the CSV is not the expected filtered one.",
 )
 
+print("== 3b. Random-split CSV (used by DCT3D tuning via warmstart inheritance) ==")
+rcsv_path = tkpath.RANDOM_SPLIT_TOKAMARK_DATA_SPLITS_FILE
+rrows = list(csv.DictReader(open(rcsv_path)))
+r_ids = {r["shot_id"] for r in rrows}
+check(
+    len(rrows) <= TRAIN_N + 2 * EVAL_N,
+    f"random CSV has {len(rrows)} rows (filtered)",
+    f"random CSV at {rcsv_path} has {len(rrows)} rows — UNFILTERED. The seed-54 embeddings-tuning "
+    f"shuffle selects shot 14305 from it (position 0). Fix: setup_pod.sh step 4 installs "
+    f"data/TokaMark_data_splits_filtered500.csv over it.",
+)
+r_missing = sorted(r_ids - on_disk) if os.path.isdir(DATA) else sorted(r_ids)
+check(
+    not r_missing,
+    "every shot in the random CSV is on disk",
+    f"{len(r_missing)} random-CSV shots not on disk (first few: {r_missing[:5]}).",
+)
+check(
+    "14305" not in r_ids,
+    "canary: 14305 is not in the random CSV",
+    "canary FAILED: 14305 present in the random CSV — it is not the filtered version.",
+)
+
+print("== 3c. Warmstart inheritance patch (honor requested data.split) ==")
+inh_path = os.path.join(WORK, "tokamind", "scripts_mast", "mast_utils", "config", "inheritance.py")
+inh_src = open(inh_path).read() if os.path.isfile(inh_path) else ""
+check(
+    "PATCHED (fusion_ai Move-2)" in inh_src,
+    "inheritance.py is patched — finetune will honor data.split: temporal",
+    f"inheritance.py NOT patched — warmstart would force data.split back to the source model's "
+    f"'random', silently breaking the temporal design. Run pod/patch_inheritance.py.",
+)
+
 print("== 4. Subset-of-shots guard ==")
 # Even if configs regress to subset_of_shots: null, a filtered CSV caps exposure at 500 shots.
 n_train_total = sum(1 for r in rows if r["train"] == "True")

@@ -26,6 +26,7 @@ M2=/tmp/m2
 echo "== [0/6] Restore CSV if a previous run died mid-swap, patch + verify =="
 python "$KIT/pod/swap_test_val.py" restore
 python "$KIT/pod/patch_forward.py"
+python "$KIT/pod/patch_inheritance.py"
 python "$KIT/pod/verify_setup.py"
 
 echo "== [1/6] Write configs (values re-read and asserted, not sed-and-hope) =="

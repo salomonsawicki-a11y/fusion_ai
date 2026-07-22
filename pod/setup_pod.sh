@@ -75,11 +75,20 @@ else
   python -c "import torch; print('torch', torch.__version__, '| CUDA available: True')"
 fi
 
-echo "== [4/7] Replace the package temporal CSV with the filtered 500-shot version =="
+echo "== [4/7] Replace BOTH package split CSVs with the filtered 500-shot versions =="
+# Temporal: the split the experiment uses. Random: consumed by the DCT3D embeddings
+# tuning through warmstart config inheritance (seed-54 shuffle put shot 14305 at
+# position 0 of its selection — the recurring FileNotFoundError). With both CSVs
+# filtered to the on-disk shots, NO selection from either can request unknown shots.
 CSV=$(python -c "import tokamark.tools.path as p; print(p.TEMPORAL_SPLIT_TOKAMARK_DATA_SPLITS_FILE)")
 if [ ! -f "$CSV.orig" ]; then cp "$CSV" "$CSV.orig"; fi
 cp "$KIT/data/TokaMark_temporal_data_splits_filtered500.csv" "$CSV"
-echo "filtered CSV installed at: $CSV ($(($(wc -l < "$CSV") - 1)) rows)"
+echo "temporal CSV installed at: $CSV ($(($(wc -l < "$CSV") - 1)) rows)"
+
+RCSV=$(python -c "import tokamark.tools.path as p; print(p.RANDOM_SPLIT_TOKAMARK_DATA_SPLITS_FILE)")
+if [ ! -f "$RCSV.orig" ]; then cp "$RCSV" "$RCSV.orig"; fi
+cp "$KIT/data/TokaMark_data_splits_filtered500.csv" "$RCSV"
+echo "random CSV installed at: $RCSV ($(($(wc -l < "$RCSV") - 1)) rows)"
 
 echo "== [5/7] Pretrained weights from HF =="
 WEIGHTS="$WORK/tokamind/runs/tokamind-base-v2"
@@ -99,6 +108,7 @@ python "$KIT/pod/download_shots.py"
 echo "== [7/7] Purge caches (30 GB container disk fills fast) and verify =="
 rm -rf /root/.cache/pip /root/.cache/huggingface
 python "$KIT/pod/patch_forward.py"
+python "$KIT/pod/patch_inheritance.py"
 python "$KIT/pod/verify_setup.py"
 
 echo
